@@ -180,6 +180,7 @@ test('editing a sale can remove and add expediente files', function () {
 });
 
 test('the dashboard lists sales from the database for every user', function () {
+    $this->travelTo(Carbon::parse('2026-10-20 12:00'));
     $venta = Venta::factory()->create(['razon' => 'GRUPO INDUSTRIAL MEDINA SA DE CV', 'fecha' => '2026-10-09']);
     VentaBot::factory()->for($venta)->withDns(['4774961217', '4773792717'])->create();
 

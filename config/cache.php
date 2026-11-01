@@ -105,4 +105,17 @@ return [
 
     'prefix' => env('CACHE_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_').'_cache_'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Serializable Classes
+    |--------------------------------------------------------------------------
+    |
+    | PHP classes the cache may rebuild from stored data. The app only caches
+    | plain values (rate limits, schedule locks), so none are allowed: a
+    | tampered cache entry can't be turned into an object.
+    |
+    */
+
+    'serializable_classes' => false,
+
 ];
