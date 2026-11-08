@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\Venta;
 use App\Models\VentaDocumento;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
@@ -122,3 +124,19 @@ test('backups older than the days to keep are deleted', function () {
 test('the backup runs every day on the schedule', function () {
     $this->artisan('schedule:list')->expectsOutputToContain('wolftek:respaldo')->assertSuccessful();
 });
+
+test('without proc_open mysql is dumped with plain php', function () {
+    config(['wolftek.respaldos.metodo' => 'php']);
+    Venta::factory()->create(['razon' => "TACOS EL GÜERO O'HIGGINS"]);
+
+    $this->artisan('wolftek:respaldo')->assertSuccessful();
+
+    $zip = new ZipArchive;
+    $zip->open($this->carpeta.'/wolftek-2026-10-26-023000.zip');
+    $sql = $zip->getFromName('base-de-datos.sql');
+    $zip->close();
+
+    expect($sql)->toContain('CREATE TABLE `ventas`')
+        ->toContain("TACOS EL GÜERO O\'HIGGINS")
+        ->toContain('SET FOREIGN_KEY_CHECKS=0');
+})->skip(fn () => DB::connection()->getDriverName() !== 'mysql', 'Necesita MySQL: corre con DB_CONNECTION=mysql');

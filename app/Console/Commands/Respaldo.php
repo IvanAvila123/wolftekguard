@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\VentaDocumento;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
@@ -62,14 +63,16 @@ class Respaldo extends Command
 
     /**
      * Dump the default database next to the zip and return the file's path.
-     * MySQL/MariaDB use mysqldump; SQLite (development) copies its file.
+     * MySQL/MariaDB use mysqldump, or plain PHP where programs can't be started; SQLite (development) copies its file.
      */
     private function volcarBaseDeDatos(string $base): string
     {
         $conexion = config('database.connections.'.config('database.default'));
 
         return match ($conexion['driver']) {
-            'mysql', 'mariadb' => $this->volcarMysql($conexion, "{$base}.sql"),
+            'mysql', 'mariadb' => $this->usarMysqldump()
+                ? $this->volcarMysql($conexion, "{$base}.sql")
+                : $this->volcarMysqlConPhp("{$base}.sql"),
             'sqlite' => $this->copiarSqlite($conexion['database'], "{$base}.sqlite"),
             default => throw new RuntimeException("no sé respaldar una base {$conexion['driver']}."),
         };
@@ -100,6 +103,63 @@ class Respaldo extends Command
 
         if ($proceso->failed() || ! File::exists($destino)) {
             throw new RuntimeException('mysqldump falló: '.trim($proceso->errorOutput() ?: $proceso->output()));
+        }
+
+        return $destino;
+    }
+
+    /**
+     * mysqldump needs PHP to start another program (proc_open), which shared hosting such as
+     * Hostinger's disables on the command line. "auto" uses it only when it is available.
+     */
+    private function usarMysqldump(): bool
+    {
+        return match (config('wolftek.respaldos.metodo')) {
+            'mysqldump' => true,
+            'php' => false,
+            default => function_exists('proc_open'),
+        };
+    }
+
+    /**
+     * Dump without mysqldump: each table's definition and its rows as INSERT statements, all read
+     * inside one transaction so every table comes from the same moment. Fine for this app's size;
+     * a database of several GB should use mysqldump on a server that allows it.
+     */
+    private function volcarMysqlConPhp(string $destino): string
+    {
+        $db = DB::connection();
+        $pdo = $db->getPdo();
+        $archivo = fopen($destino, 'wb');
+
+        if ($archivo === false) {
+            throw new RuntimeException("no se pudo escribir {$destino}.");
+        }
+
+        try {
+            fwrite($archivo, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n");
+
+            $db->transaction(function () use ($db, $pdo, $archivo): void {
+                foreach ($db->select("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'") as $fila) {
+                    $tabla = array_values((array) $fila)[0];
+                    $definicion = array_values((array) $db->selectOne("SHOW CREATE TABLE `{$tabla}`"))[1];
+                    fwrite($archivo, "DROP TABLE IF EXISTS `{$tabla}`;\n{$definicion};\n\n");
+
+                    foreach ($db->table($tabla)->cursor() as $registro) {
+                        $valores = array_map(
+                            fn (mixed $valor): string => $valor === null ? 'NULL' : $pdo->quote((string) $valor),
+                            (array) $registro,
+                        );
+                        fwrite($archivo, "INSERT INTO `{$tabla}` VALUES (".implode(', ', $valores).");\n");
+                    }
+
+                    fwrite($archivo, "\n");
+                }
+            });
+
+            fwrite($archivo, "SET FOREIGN_KEY_CHECKS=1;\n");
+        } finally {
+            fclose($archivo);
         }
 
         return $destino;

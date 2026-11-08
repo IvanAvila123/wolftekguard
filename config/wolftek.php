@@ -42,6 +42,9 @@ return [
         'carpeta' => env('WOLFTEK_RESPALDOS_CARPETA', storage_path('app/respaldos')),
         'conservar_dias' => (int) env('WOLFTEK_RESPALDOS_DIAS', 14),
         'hora' => env('WOLFTEK_RESPALDOS_HORA', '02:30'),
+        // auto: mysqldump when PHP can start programs (proc_open), otherwise a plain-PHP dump
+        // (shared hosting such as Hostinger). Force one with "mysqldump" or "php".
+        'metodo' => env('WOLFTEK_RESPALDOS_METODO', 'auto'),
         // Path to mysqldump if it's not on the PATH (e.g. C:\xampp\mysql\bin\mysqldump.exe).
         'mysqldump' => env('WOLFTEK_MYSQLDUMP', 'mysqldump'),
     ],
