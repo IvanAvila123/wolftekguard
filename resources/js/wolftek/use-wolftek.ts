@@ -199,6 +199,9 @@ function isBlank(form: SaleForm, bots: Bot[]): boolean {
     );
 }
 
+/** Stands in while there are no machotes yet (a fresh install), so no screen reads a missing one. */
+const MACHOTE_VACIO: Machote = { name: 'Sin machotes', cat: 'General', uses: 0, preset: { status: 'Captura', prioridad: 'Media' }, text: '' };
+
 /** This month as YYYY-MM. */
 function currentPeriodo(): string {
     const now = new Date();
@@ -1195,7 +1198,7 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         'NUMERO DE LINEAS': lineTotal ? String(lineTotal) : '',
         DN: s.bots.flatMap((b) => b.dns).join(', '),
     };
-    const reviewMachote = s.machotes[s.reviewMach] || s.machotes[0];
+    const reviewMachote = s.machotes[s.reviewMach] || s.machotes[0] || MACHOTE_VACIO;
     const applyMach = (m: Machote, goNew: boolean) => {
         set((st) => ({
             mDialog: false,
@@ -1214,7 +1217,7 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
     const zeroColor = (v: number) => (v === 0 ? 'var(--color-neutral-500)' : 'var(--color-text)');
     const oems = [...new Set(invAll.map((r) => r.oem))];
 
-    const machSelected = s.machotes[s.machSel] || s.machotes[0];
+    const machSelected = s.machotes[s.machSel] || s.machotes[0] || MACHOTE_VACIO;
     /** Creates the machote on the server when it has no id yet, otherwise updates it. */
     const saveMach = (m: Machote, onSuccess: () => void) => {
         const data = { name: m.name, cat: m.cat, preset_status: m.preset.status, preset_prioridad: m.preset.prioridad, text: m.text };
@@ -2135,7 +2138,12 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
                 return;
             }
 
-            const m = selRaw.status === 'Líneas Atrapadas' ? s.machotes[0] : s.machotes[1];
+            const m = (selRaw.status === 'Líneas Atrapadas' ? s.machotes[0] : s.machotes[1]) || s.machotes[0];
+
+            if (!m) {
+                return toast('Primero crea un machote en la pantalla Machotes', 'error');
+            }
+
             copy(machoteToText(m.text, saleVars(selRaw)), 'Mensaje "' + m.name + '" copiado');
             contarUso(m);
         },
