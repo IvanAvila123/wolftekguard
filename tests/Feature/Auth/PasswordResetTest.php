@@ -2,7 +2,10 @@
 
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
+use Symfony\Component\Mailer\Exception\TransportException;
 
 test('reset password link screen can be rendered', function () {
     $response = $this->get('/forgot-password');
@@ -18,6 +21,19 @@ test('reset password link can be requested', function () {
     $this->post('/forgot-password', ['email' => $user->email]);
 
     Notification::assertSentTo($user, ResetPassword::class);
+});
+
+test('a mail server failure shows a message instead of an error page', function () {
+    Exceptions::fake();
+    Password::shouldReceive('sendResetLink')
+        ->andThrow(new TransportException('Failed to authenticate on SMTP server'));
+
+    $this->from('/forgot-password')
+        ->post('/forgot-password', ['email' => 'ana@wolftek.mx'])
+        ->assertRedirect('/forgot-password')
+        ->assertSessionHasErrors(['email' => 'No pudimos enviar el correo en este momento. Intenta de nuevo más tarde o avisa a tu administrador.']);
+
+    Exceptions::assertReported(TransportException::class);
 });
 
 test('reset password screen can be rendered', function () {
