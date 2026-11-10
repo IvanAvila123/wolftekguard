@@ -44,7 +44,7 @@ class InventarioItemSeeder extends Seeder
         foreach (self::INVENTORY as [$oem, $sku, $nombre, $mex, $gdl, $mty, $modelo, $color]) {
             $item = InventarioItem::updateOrCreate(['sku' => $sku], compact('oem', 'nombre', 'modelo', 'color'));
 
-            foreach (array_combine(InventarioItem::ALMACENES, [$mex, $gdl, $mty]) as $almacen => $cantidad) {
+            foreach (['EBS_MEX' => $mex, 'EBS_GDL' => $gdl, 'EBS_MTY' => $mty] as $almacen => $cantidad) {
                 $item->stocks()->updateOrCreate(['almacen' => $almacen], ['cantidad' => $cantidad]);
             }
         }

@@ -70,14 +70,15 @@ export const DOCS: [string, string, string][] = [
 
 export const DEFAULT_REDES = 'Google_maps; Facebook; WhatsApp (Texto); Gmail; Instagram';
 
+/** Sale types offered in the form. Older sales keep whatever type they were saved with. */
 export const TIPOS = [
-    'RENOVACION',
-    'RENOVACION ANTICIPADA',
-    'RENOVACION ANTICIPADA T2',
-    'LINEA NUEVA',
-    'PORTABILIDAD',
-    'AUMENTO DE LINEAS',
-    'CAMBIO DE PLAN',
+    'RENOVACIÓN',
+    'RENOVACIÓN ANTICIPADA T1',
+    'RENOVACIÓN ANTICIPADA T2',
+    'RENOVACIÓN ANTICIPADA T3',
+    'RENOVACIÓN ANTICIPADA',
+    'ADICIÓN',
+    'VENTA NUEVA',
 ];
 
 export const PLAZOS = ['12 meses', '18 meses', '24 meses', '36 meses'];
@@ -100,8 +101,22 @@ export const EXAMPLE_DNS = [
     '4791043739',
 ];
 
-/** One equipment SKU with its pieces per warehouse (EBS_MEX / EBS_GDL / EBS_MTY). */
-export type InventoryRow = { oem: string; sku: string; nombre: string; modelo: string; color: string; mex: number; gdl: number; mty: number };
+/** One equipment SKU with its pieces per warehouse and its extra details, keyed by the Excel column. */
+export type InventoryRow = {
+    oem: string;
+    sku: string;
+    nombre: string;
+    modelo: string;
+    color: string;
+    stock: Record<string, number>;
+    extras: Record<string, string>;
+};
+
+/** The inventory's dynamic columns, in the order of the last imported Excel. */
+export type InventoryColumns = { almacenes: string[]; extras: string[] };
+
+/** Pieces of an item across every warehouse. */
+export const stockTotal = (row: InventoryRow) => Object.values(row.stock ?? {}).reduce((total, cantidad) => total + cantidad, 0);
 
 export type ServerBot = {
     costo: boolean;
@@ -193,6 +208,7 @@ export type WolftekProps = {
     dnsAbiertos: DnAbierto[];
     clientes: ClienteConocido[];
     inventario: InventoryRow[];
+    inventarioColumnas: InventoryColumns;
     machotes: Machote[];
     ultimaImportacion: UltimaImportacion | null;
     /** Only sent when the "Archivadas" dialog asks for it (optional prop). */

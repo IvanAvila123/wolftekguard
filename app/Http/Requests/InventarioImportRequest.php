@@ -13,8 +13,9 @@ use Throwable;
 class InventarioImportRequest extends FormRequest
 {
     /**
-     * Columns of the inventory file. The key is the field; the values are the accepted header names
-     * (compared without accents, case or spaces).
+     * Fixed columns of the inventory file. The key is the field; the values are the accepted header
+     * names (compared without accents, case or spaces). Any other column is dynamic: a column of whole
+     * numbers is a warehouse (its pieces add up to the stock) and a text column is an extra detail.
      *
      * @var array<string, list<string>>
      */
@@ -24,13 +25,20 @@ class InventarioImportRequest extends FormRequest
         'nombre' => ['descripcion', 'modelo', 'nombre', 'equipo'],
         'modelo' => ['modelo_base'],
         'color' => ['color'],
-        'EBS_MEX' => ['ebs_mex'],
-        'EBS_GDL' => ['ebs_gdl'],
-        'EBS_MTY' => ['ebs_mty'],
     ];
 
     /** Columns the file must have; "modelo base" and "color" are optional. */
-    private const OBLIGATORIAS = ['oem', 'sku', 'nombre', 'EBS_MEX', 'EBS_GDL', 'EBS_MTY'];
+    private const OBLIGATORIAS = ['oem', 'sku', 'nombre'];
+
+    /** Header words that make a number column a detail, never pieces (a price is not stock). */
+    private const NO_SON_PIEZAS = ['precio', 'costo', 'importe', 'price', 'cost'];
+
+    /**
+     * The dynamic columns found by filas(), in the file's order.
+     *
+     * @var array{almacenes: list<string>, extras: list<string>}
+     */
+    private array $columnasLeidas = ['almacenes' => [], 'extras' => []];
 
     private const MAX_FILAS = 5000;
 
@@ -63,9 +71,19 @@ class InventarioImportRequest extends FormRequest
     }
 
     /**
+     * The warehouse and extra columns of the file read by filas(), in the file's order.
+     *
+     * @return array{almacenes: list<string>, extras: list<string>}
+     */
+    public function columnas(): array
+    {
+        return $this->columnasLeidas;
+    }
+
+    /**
      * The inventory rows in the uploaded file, validated.
      *
-     * @return list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>}>
+     * @return list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>, extras: array<string, string>}>
      *
      * @throws ValidationException
      */
@@ -84,26 +102,52 @@ class InventarioImportRequest extends FormRequest
             ]);
         }
 
+        $sinPiezas = 'Agrega al menos una columna con las piezas por almacén (por ejemplo EBS_MEX o EXISTENCIA). Descarga la plantilla para ver el formato.';
+
+        if ($encabezado['otras'] === []) {
+            throw ValidationException::withMessages(['archivo' => $sinPiezas]);
+        }
+
+        $celdaDe = fn (array $celdas, int $posicion): string => trim((string) ($celdas[$posicion] ?? ''));
+        $posiciones = [...array_values($encabezado['columnas']), ...array_keys($encabezado['otras'])];
+        $renglones = [];
+
+        foreach (array_slice($hoja, $encabezado['fila'] + 1, preserve_keys: true) as $indice => $celdas) {
+            if (collect($posiciones)->every(fn (int $posicion) => $celdaDe($celdas, $posicion) === '')) {
+                continue;
+            }
+
+            $renglones[$indice + 1] = $celdas;
+        }
+
+        if ($renglones === []) {
+            throw ValidationException::withMessages(['archivo' => 'El archivo no tiene modelos debajo de los encabezados.']);
+        }
+
+        [$almacenes, $extras] = $this->clasificarColumnas($encabezado['otras'], $renglones, $celdaDe);
+
+        if ($almacenes === []) {
+            throw ValidationException::withMessages(['archivo' => $sinPiezas]);
+        }
+
+        $this->columnasLeidas = ['almacenes' => array_values($almacenes), 'extras' => array_values($extras)];
+
         $filas = [];
         $errores = [];
         $vistos = [];
 
-        foreach (array_slice($hoja, $encabezado['fila'] + 1, preserve_keys: true) as $indice => $celdas) {
-            $numero = $indice + 1;
-            $valor = fn (string $campo) => trim((string) ($celdas[$encabezado['columnas'][$campo] ?? -1] ?? ''));
-
-            if (collect(array_keys($encabezado['columnas']))->every(fn (string $campo) => $valor($campo) === '')) {
-                continue;
-            }
+        foreach ($renglones as $numero => $celdas) {
+            $valor = fn (string $campo) => isset($encabezado['columnas'][$campo]) ? $celdaDe($celdas, $encabezado['columnas'][$campo]) : '';
 
             $sku = strtoupper($valor('sku'));
             $fila = [
                 'oem' => strtoupper($valor('oem')),
                 'sku' => $sku,
                 'nombre' => strtoupper($valor('nombre')),
-                'modelo' => isset($encabezado['columnas']['modelo']) && $valor('modelo') !== '' ? strtoupper($valor('modelo')) : null,
-                'color' => isset($encabezado['columnas']['color']) && $valor('color') !== '' ? strtoupper($valor('color')) : null,
+                'modelo' => $valor('modelo') !== '' ? strtoupper($valor('modelo')) : null,
+                'color' => $valor('color') !== '' ? strtoupper($valor('color')) : null,
                 'stock' => [],
+                'extras' => [],
             ];
 
             foreach (['sku' => 'SKU', 'oem' => 'OEM', 'nombre' => 'la descripción'] as $campo => $etiqueta) {
@@ -118,14 +162,22 @@ class InventarioImportRequest extends FormRequest
 
             $vistos[$sku] = $numero;
 
-            foreach (['EBS_MEX', 'EBS_GDL', 'EBS_MTY'] as $almacen) {
-                $cantidad = $this->cantidad($valor($almacen));
+            foreach ($almacenes as $posicion => $almacen) {
+                $cantidad = $this->cantidad($celdaDe($celdas, $posicion));
 
                 if ($cantidad === null) {
                     $errores[] = "Fila {$numero}: {$almacen} debe ser un número entero de 0 o más.";
                 }
 
                 $fila['stock'][$almacen] = $cantidad ?? 0;
+            }
+
+            foreach ($extras as $posicion => $columna) {
+                $texto = $celdaDe($celdas, $posicion);
+
+                if ($texto !== '') {
+                    $fila['extras'][$columna] = $texto;
+                }
             }
 
             $filas[] = $fila;
@@ -170,34 +222,70 @@ class InventarioImportRequest extends FormRequest
     }
 
     /**
-     * The header row (the first one with a "SKU" column) and the position of each known column in it.
+     * The header row (the first one with a "SKU" column), the position of each fixed column in it,
+     * and the other named columns by position (their header in capitals).
      *
      * @param  array<int, array<int, mixed>>  $hoja
-     * @return array{fila: int, columnas: array<string, int>}
+     * @return array{fila: int, columnas: array<string, int>, otras: array<int, string>}
      */
     private function buscarEncabezado(array $hoja): array
     {
         foreach (array_slice($hoja, 0, 20, true) as $indice => $celdas) {
             $columnas = [];
+            $otras = [];
 
             foreach ($celdas as $posicion => $celda) {
                 $nombre = Str::of((string) $celda)->ascii()->lower()->trim()->replaceMatches('/[\s\-]+/', '_')->toString();
+                $campo = collect(self::COLUMNAS)->search(fn (array $alias) => in_array($nombre, $alias, true));
 
-                foreach (self::COLUMNAS as $campo => $alias) {
-                    if (in_array($nombre, $alias, true) && ! isset($columnas[$campo])) {
-                        $columnas[$campo] = $posicion;
+                if ($campo !== false && ! isset($columnas[$campo])) {
+                    $columnas[$campo] = $posicion;
+                } elseif ($campo === false && $nombre !== '') {
+                    $titulo = Str::of((string) $celda)->trim()->upper()->replaceMatches('/\s+/', ' ')->toString();
+
+                    if (! in_array($titulo, $otras, true)) {
+                        $otras[$posicion] = $titulo;
                     }
                 }
             }
 
             if (isset($columnas['sku'])) {
-                return ['fila' => $indice, 'columnas' => $columnas];
+                return ['fila' => $indice, 'columnas' => $columnas, 'otras' => $otras];
             }
         }
 
         throw ValidationException::withMessages([
             'archivo' => 'No encontramos la fila de encabezados (con la columna SKU). Descarga la plantilla para ver el formato.',
         ]);
+    }
+
+    /**
+     * Split the dynamic columns: one whose filled cells are mostly whole numbers is a warehouse (its
+     * odd cells are reported as errors, so a typo never turns stock into text); the rest, and any
+     * price or cost column, are extra details.
+     *
+     * @param  array<int, string>  $otras
+     * @param  array<int, array<int, mixed>>  $renglones
+     * @return array{0: array<int, string>, 1: array<int, string>}
+     */
+    private function clasificarColumnas(array $otras, array $renglones, callable $celdaDe): array
+    {
+        $almacenes = [];
+        $extras = [];
+
+        foreach ($otras as $posicion => $titulo) {
+            $valores = collect($renglones)->map(fn (array $celdas) => $celdaDe($celdas, $posicion))->filter(fn (string $valor) => $valor !== '');
+            $numeros = $valores->filter(fn (string $valor) => $this->cantidad($valor) !== null)->count();
+            $esDetalle = Str::of($titulo)->ascii()->lower()->contains(self::NO_SON_PIEZAS);
+
+            if (! $esDetalle && $numeros > 0 && $numeros >= $valores->count() - $numeros) {
+                $almacenes[$posicion] = $titulo;
+            } else {
+                $extras[$posicion] = $titulo;
+            }
+        }
+
+        return [$almacenes, $extras];
     }
 
     /** A stock cell as a whole number of pieces; empty means 0, anything else invalid is null. */

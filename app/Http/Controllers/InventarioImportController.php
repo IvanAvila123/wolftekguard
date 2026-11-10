@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -21,14 +22,18 @@ class InventarioImportController extends Controller
     private const SESSION_KEY = 'inventario_importacion';
 
     /**
-     * Download the Excel template, already filled with the current inventory.
+     * Download the Excel template, already filled with the current inventory and its columns
+     * (warehouses and extra details in the last import's order).
      */
     public function plantilla(): StreamedResponse
     {
         $libro = new Spreadsheet;
         $hoja = $libro->getActiveSheet();
         $hoja->setTitle('Inventario');
-        $hoja->fromArray([['OEM', 'SKU', 'DESCRIPCION', 'MODELO BASE', 'COLOR', ...InventarioItem::ALMACENES]]);
+        $columnas = InventarioItem::columnas();
+        $almacenes = $columnas['almacenes'] ?: ['EXISTENCIA'];
+        $encabezado = ['OEM', 'SKU', 'DESCRIPCION', 'MODELO BASE', 'COLOR', ...$almacenes, ...$columnas['extras']];
+        $hoja->fromArray([$encabezado]);
 
         $filas = InventarioItem::with('stocks')->orderBy('oem')->orderBy('nombre')->get()->map(fn (InventarioItem $item) => [
             $item->oem,
@@ -36,18 +41,20 @@ class InventarioImportController extends Controller
             $item->nombre,
             $item->modelo,
             $item->color,
-            ...array_map(fn (string $almacen) => $item->stockEn($almacen), InventarioItem::ALMACENES),
+            ...array_map(fn (string $almacen) => $item->stockEn($almacen), $almacenes),
+            ...array_map(fn (string $extra) => $item->extras[$extra] ?? '', $columnas['extras']),
         ])->all();
 
         if ($filas !== []) {
             $hoja->fromArray($filas, null, 'A2', true);
         }
 
-        $hoja->getStyle('A1:H1')->getFont()->setBold(true);
+        $ultima = Coordinate::stringFromColumnIndex(count($encabezado));
+        $hoja->getStyle("A1:{$ultima}1")->getFont()->setBold(true);
         $hoja->freezePane('A2');
 
-        foreach (range('A', 'H') as $columna) {
-            $hoja->getColumnDimension($columna)->setAutoSize(true);
+        foreach (range(1, count($encabezado)) as $indice) {
+            $hoja->getColumnDimension(Coordinate::stringFromColumnIndex($indice))->setAutoSize(true);
         }
 
         return response()->streamDownload(
@@ -69,10 +76,12 @@ class InventarioImportController extends Controller
             'token' => $token,
             'archivo' => $request->file('archivo')->getClientOriginalName(),
             'filas' => $filas,
+            'columnas' => $request->columnas(),
         ]);
 
         return response()->json([
             'token' => $token,
+            'columnas' => $request->columnas(),
             'archivo' => $request->file('archivo')->getClientOriginalName(),
             'modelos' => count($filas),
             ...InventarioItem::compararCon($filas),
@@ -103,6 +112,7 @@ class InventarioImportController extends Controller
                 'nuevos' => count($cambios['nuevos']),
                 'actualizados' => count($cambios['cambian']) + count($cambios['sinStock']),
                 'quitados' => count($cambios['quitados']),
+                'columnas' => $pendiente['columnas'] ?? null,
             ]);
         });
 

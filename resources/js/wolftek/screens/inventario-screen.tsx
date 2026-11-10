@@ -2,12 +2,6 @@ import { Button, Card, Chip, PageHeader, SearchInput, Select, StatCard, Tag, typ
 import type { WolftekView } from '../use-wolftek';
 import { sx } from '../utils';
 
-const warehouses = [
-    ['EBS_MEX', 'mex', 'c1'],
-    ['EBS_GDL', 'gdl', 'c2'],
-    ['EBS_MTY', 'mty', 'c3'],
-] as const;
-
 const sortOptions = [
     { value: 'az', label: 'Modelo A–Z' },
     { value: 'mas', label: 'Más piezas primero' },
@@ -101,14 +95,31 @@ export default function InventarioScreen({ v }: { v: WolftekView }) {
                             <ModelName r={r} />
                             <StockTag r={r} />
                         </div>
-                        <div style={sx('display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);font-size:12px;')}>
-                            {warehouses.map(([label, qty, color]) => (
-                                <span key={label} style={sx('display:flex;flex-direction:column;gap:2px;')}>
-                                    <span style={sx('font-size:10px;letter-spacing:0.04em;color:var(--color-neutral-400);')}>{label}</span>
-                                    <span style={sx(`font-variant-numeric:tabular-nums;color:${r[color]};`)}>{r[qty]}</span>
+                        <div style={sx('display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:var(--space-3);font-size:12px;')}>
+                            {r.stocks.map((s) => (
+                                <span key={s.label} style={sx('display:flex;flex-direction:column;gap:2px;min-width:0;')}>
+                                    <span style={sx('font-size:10px;letter-spacing:0.04em;color:var(--color-neutral-400);overflow-wrap:anywhere;')}>
+                                        {s.label}
+                                    </span>
+                                    <span style={sx(`font-variant-numeric:tabular-nums;color:${s.color};`)}>{s.qty}</span>
                                 </span>
                             ))}
                         </div>
+                        {r.details.some((d) => d.value) && (
+                            <div
+                                style={sx(
+                                    'display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4);font-size:12px;color:var(--color-neutral-300);',
+                                )}
+                            >
+                                {r.details
+                                    .filter((d) => d.value)
+                                    .map((d) => (
+                                        <span key={d.label}>
+                                            <span style={sx('color:var(--color-neutral-400);')}>{d.label}:</span> {d.value}
+                                        </span>
+                                    ))}
+                            </div>
+                        )}
                     </Card>
                 ))}
             </div>
@@ -118,10 +129,13 @@ export default function InventarioScreen({ v }: { v: WolftekView }) {
                     <thead>
                         <tr>
                             <th style={sx('padding-left:var(--space-6);')}>Modelo</th>
-                            {warehouses.map(([label]) => (
+                            {v.invAlmacenes.map((label) => (
                                 <th key={label} style={sx('text-align:right;')}>
                                     {label}
                                 </th>
+                            ))}
+                            {v.invExtras.map((label) => (
+                                <th key={label}>{label}</th>
                             ))}
                             <th style={sx('text-align:right;padding-right:var(--space-6);')}>Total</th>
                         </tr>
@@ -132,12 +146,17 @@ export default function InventarioScreen({ v }: { v: WolftekView }) {
                                 <td style={sx('padding:12px 10px 12px var(--space-6);')}>
                                     <ModelName r={r} />
                                 </td>
-                                {warehouses.map(([label, qty, color]) => (
+                                {r.stocks.map((s) => (
                                     <td
-                                        key={label}
-                                        style={sx(`padding:12px 10px;text-align:right;font-variant-numeric:tabular-nums;color:${r[color]};`)}
+                                        key={s.label}
+                                        style={sx(`padding:12px 10px;text-align:right;font-variant-numeric:tabular-nums;color:${s.color};`)}
                                     >
-                                        {r[qty]}
+                                        {s.qty}
+                                    </td>
+                                ))}
+                                {r.details.map((d) => (
+                                    <td key={d.label} style={sx('padding:12px 10px;color:var(--color-neutral-300);')}>
+                                        {d.value}
                                     </td>
                                 ))}
                                 <td style={sx('padding:12px var(--space-6) 12px 10px;text-align:right;')}>

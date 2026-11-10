@@ -31,7 +31,20 @@ class InventarioImportacion extends Model
         'nuevos',
         'actualizados',
         'quitados',
+        'columnas',
     ];
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'columnas' => 'array',
+        ];
+    }
 
     /**
      * @return BelongsTo<User, $this>

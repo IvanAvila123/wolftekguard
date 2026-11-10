@@ -12,6 +12,7 @@ import {
     STATUSES,
     STATUS_LIST,
     TIPOS,
+    stockTotal,
     type ClienteConocido,
     type DnAbierto,
     type Machote,
@@ -22,6 +23,7 @@ import { xsrfToken, type OutboxMethod } from './offline/outbox';
 import { useConnection } from './offline/use-connection';
 import { parseRoute, pathOf, urlFor, type AppRoute, type Screen } from './routes';
 import {
+    MACHOTE_VARIABLES,
     atLabel,
     botFromServer,
     botRows,
@@ -79,6 +81,8 @@ type State = {
     reviewMach: number;
     machotes: Machote[];
     machEditing: boolean;
+    /** "¿Borrar este machote?" confirmation. */
+    machDeleteAsk: boolean;
     invQ: string;
     invOem: string;
     invLow: boolean;
@@ -133,6 +137,7 @@ function initialState(machotes: Machote[]): State {
         reviewMach: 0,
         machotes: machotes.map((m) => ({ ...m })),
         machEditing: false,
+        machDeleteAsk: false,
         invQ: '',
         invOem: 'Todos',
         invLow: false,
@@ -227,7 +232,18 @@ const firstError = (errors: Record<string, string>) => Object.values(errors)[0] 
  * A direct port of the design prototype's `renderVals()`; screens only render what this returns.
  * Sales, inventory and machotes come from the server (`dashboard` page props); only drafts stay in localStorage.
  */
-export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario, machotes, ultimaImportacion, archivadas }: WolftekProps) {
+export function useWolftek({
+    periodo,
+    ventas,
+    dnsAbiertos,
+    clientes,
+    inventario,
+    // Default for a page cached offline before inventory columns existed.
+    inventarioColumnas = { almacenes: [], extras: [] },
+    machotes,
+    ultimaImportacion,
+    archivadas,
+}: WolftekProps) {
     const [s, setRaw] = useState<State>(() => initialState(machotes));
     const lastDraft = useRef('');
     const draftTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -256,7 +272,9 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
     useEffect(() => {
         set((st) => ({
             machotes: machotes.map((m, i) =>
-                st.machEditing && i === st.machSel && st.machotes[i] && st.machotes[i].id === m.id ? { ...m, text: st.machotes[i].text } : { ...m },
+                st.machEditing && i === st.machSel && st.machotes[i] && st.machotes[i].id === m.id
+                    ? { ...m, name: st.machotes[i].name, cat: st.machotes[i].cat, text: st.machotes[i].text }
+                    : { ...m },
             ),
         }));
     }, [machotes, set]);
@@ -766,7 +784,7 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
             Object.fromEntries(
                 inventario.map((r): [string, InventoryItem] => [
                     r.sku,
-                    { oem: r.oem, sku: r.sku, name: r.nombre, stock: r.mex + r.gdl + r.mty, model: r.modelo, color: r.color },
+                    { oem: r.oem, sku: r.sku, name: r.nombre, stock: stockTotal(r), model: r.modelo, color: r.color },
                 ]),
             ),
         [inventario],
@@ -1189,15 +1207,7 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
             ],
         },
     ];
-    const formVals: Record<string, string> = {
-        CLIENTE: f.razon,
-        'RAZON SOCIAL': f.razon,
-        CUENTA: f.cuenta,
-        'ID CTE': f.idcte,
-        ACUERDO: f.acuerdo,
-        'NUMERO DE LINEAS': lineTotal ? String(lineTotal) : '',
-        DN: s.bots.flatMap((b) => b.dns).join(', '),
-    };
+    const formVals = saleVars(f, s.bots);
     const reviewMachote = s.machotes[s.reviewMach] || s.machotes[0] || MACHOTE_VACIO;
     const applyMach = (m: Machote, goNew: boolean) => {
         set((st) => ({
@@ -1209,7 +1219,14 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         toast('Se aplicó "' + m.name + '"');
     };
 
-    const invAll = inventario.map(({ oem, sku, nombre, mex, gdl, mty }) => ({ oem, sku, modelo: nombre, mex, gdl, mty, total: mex + gdl + mty }));
+    const invAll = inventario.map((r) => ({
+        oem: r.oem,
+        sku: r.sku,
+        modelo: r.nombre,
+        stock: r.stock ?? {},
+        extras: r.extras ?? {},
+        total: stockTotal(r),
+    }));
     const iq = s.invQ.trim().toUpperCase();
     const invFiltered = invAll
         .filter((r) => (s.invOem === 'Todos' || r.oem === s.invOem) && (!s.invLow || r.total < 30) && (!iq || (r.modelo + ' ' + r.sku).includes(iq)))
@@ -1267,13 +1284,13 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
                 toast(c.file + ' descargado');
             },
         }));
-    const conRows = src.bots.flatMap((b, i) => (b.costo ? botRows(b, i) : []));
-    const sinRows = src.bots.flatMap((b, i) => (!b.costo ? botRows(b, i) : []));
+    const conRows = src.bots.flatMap((b) => (b.costo ? botRows(b) : []));
+    const sinRows = src.bots.flatMap((b) => (!b.costo ? botRows(b) : []));
     const csvFiles = csvList(
         [
             ...src.bots.map((b, i) => ({
                 label: 'BOT ' + (i + 1) + ' · ' + (b.costo ? 'Con costo' : 'Sin costo'),
-                rows: botRows(b, i),
+                rows: botRows(b),
                 file: pref + '_BOT' + (i + 1) + '.csv',
             })),
             { label: 'Todas con costo', rows: conRows, file: pref + '_CON_COSTO.csv' },
@@ -1300,11 +1317,11 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         selPref = selRaw.cuenta;
         selFormNotas = data.form.notas || '';
         selEdit = () => startEdit(selRaw.id);
-        const con = data.bots.flatMap((b, i) => (b.costo ? botRows(b, i) : []));
-        const sin = data.bots.flatMap((b, i) => (!b.costo ? botRows(b, i) : []));
+        const con = data.bots.flatMap((b) => (b.costo ? botRows(b) : []));
+        const sin = data.bots.flatMap((b) => (!b.costo ? botRows(b) : []));
         selCsvFiles = csvList(
             [
-                ...data.bots.map((b, i) => ({ label: 'BOT ' + (i + 1), rows: botRows(b, i), file: selPref + '_BOT' + (i + 1) + '.csv' })),
+                ...data.bots.map((b, i) => ({ label: 'BOT ' + (i + 1), rows: botRows(b), file: selPref + '_BOT' + (i + 1) + '.csv' })),
                 { label: 'Con costo', rows: con, file: selPref + '_CON_COSTO.csv' },
                 { label: 'Sin costo', rows: sin, file: selPref + '_SIN_COSTO.csv' },
             ],
@@ -1844,7 +1861,7 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
                     domicilio: 'INDEPENDENCIA , 15, INT B, CENTRO, SAN JUAN DE LOS LAGOS, SAN JUAN DE LOS LAGOS, JALISCO, 47000, MEX',
                     encargada: 'ELSA LORENA PADILLA / ABIGAIL PADILLA PADILLA',
                     telefono: '3957256197',
-                    tipo: 'RENOVACION ANTICIPADA T2',
+                    tipo: 'RENOVACIÓN ANTICIPADA T2',
                 },
                 bots: [
                     {
@@ -1889,7 +1906,8 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         setField,
         clienteFields,
         entregaFields,
-        tipoOptions: TIPOS,
+        // An older sale keeps its type (e.g. PORTABILIDAD) as an option, so editing it doesn't change it.
+        tipoOptions: f.tipo && !TIPOS.includes(f.tipo) ? [...TIPOS, f.tipo] : TIPOS,
         statusList: STATUS_LIST,
         plazos: PLAZOS,
         hasClientSugg: clientSuggestions.length > 0,
@@ -2144,7 +2162,8 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
                 return toast('Primero crea un machote en la pantalla Machotes', 'error');
             }
 
-            copy(machoteToText(m.text, saleVars(selRaw)), 'Mensaje "' + m.name + '" copiado');
+            const saved = savedSaleOf(selRaw.id);
+            copy(machoteToText(m.text, saleVars({ ...saved.form, status: selRaw.status }, saved.bots)), 'Mensaje "' + m.name + '" copiado');
             contarUso(m);
         },
 
@@ -2179,6 +2198,8 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         })),
         lowChip: chipStyle(s.invLow),
         toggleLow: () => set({ invLow: !s.invLow }),
+        invAlmacenes: inventarioColumnas.almacenes,
+        invExtras: inventarioColumnas.extras,
         invRows: invFiltered.map((r) => ({
             ...r,
             modelo: nice(r.modelo)
@@ -2186,9 +2207,13 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
                 .replace(/(\d+)gb/gi, '$1 GB')
                 .replace(/Usb-c/g, 'USB-C'),
             nameColor: r.total === 0 ? 'var(--color-neutral-400)' : 'var(--color-text)',
-            c1: zeroColor(r.mex),
-            c2: zeroColor(r.gdl),
-            c3: zeroColor(r.mty),
+            // Warehouses and details in the Excel's order; a warehouse the item lacks shows 0.
+            stocks: inventarioColumnas.almacenes.map((almacen) => ({
+                label: almacen,
+                qty: r.stock[almacen] ?? 0,
+                color: zeroColor(r.stock[almacen] ?? 0),
+            })),
+            details: inventarioColumnas.extras.map((extra) => ({ label: extra, value: r.extras[extra] ?? '' })),
             tagClass: r.total === 0 ? 'tag tag-accent' : r.total < 30 ? 'tag tag-outline' : 'tag tag-neutral',
             totalLabel: r.total === 0 ? 'Sin stock' : r.total < 30 ? r.total + ' · bajo' : String(r.total),
         })),
@@ -2260,6 +2285,49 @@ export function useWolftek({ periodo, ventas, dnsAbiertos, clientes, inventario,
         onMachText: (e: ChangeEvent<HTMLTextAreaElement>) => {
             const v = e.target.value;
             set((st) => ({ machotes: st.machotes.map((m, i) => (i === st.machSel ? { ...m, text: v } : m)) }));
+        },
+        machName: machSelected.name,
+        machCat: machSelected.cat,
+        onMachName: (e: ChangeEvent<HTMLInputElement>) => {
+            const v = e.target.value;
+            set((st) => ({ machotes: st.machotes.map((m, i) => (i === st.machSel ? { ...m, name: v } : m)) }));
+        },
+        onMachCat: (e: ChangeEvent<HTMLInputElement>) => {
+            const v = e.target.value;
+            set((st) => ({ machotes: st.machotes.map((m, i) => (i === st.machSel ? { ...m, cat: v } : m)) }));
+        },
+        /** Every variable a machote can use; clicking one copies it, ready to paste into the text. */
+        machVars: MACHOTE_VARIABLES.map(([name, desc]) => ({
+            key: name,
+            label: '{' + name + '}',
+            desc,
+            copy: () => copy('{' + name + '}', '{' + name + '} copiado: pégalo en el texto'),
+        })),
+        canDeleteMach: !!machSelected.id,
+        machDeleteAsk: s.machDeleteAsk,
+        askDeleteMach: () => set({ machDeleteAsk: true }),
+        cancelDeleteMach: () => set({ machDeleteAsk: false }),
+        confirmDeleteMach: () => {
+            const id = machSelected.id;
+
+            if (!id) {
+                return set({ machDeleteAsk: false });
+            }
+
+            const name = machSelected.name;
+            set({ machDeleteAsk: false });
+            submit({
+                method: 'delete',
+                url: route('machotes.destroy', id),
+                data: {},
+                label: 'Borrar machote · ' + name,
+                onSuccess: () => {
+                    set({ machSel: 0, machEditing: false });
+                    toast('Machote "' + name + '" borrado');
+                },
+                onError: (errors) => toast(firstError(errors), 'error'),
+                onQueued: () => toast('Sin conexión: el machote se borrará al volver la conexión'),
+            });
         },
         dupMach: () => {
             const index = s.machotes.length;

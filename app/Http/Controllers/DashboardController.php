@@ -56,6 +56,7 @@ class DashboardController extends Controller
             'dnsAbiertos' => $this->dnsAbiertos(),
             'clientes' => $this->clientes(),
             'inventario' => InventarioItemResource::collection(InventarioItem::with('stocks')->orderBy('id')->get())->resolve(),
+            'inventarioColumnas' => InventarioItem::columnas(),
             'machotes' => MachoteResource::collection(Machote::orderBy('id')->get())->resolve(),
             'ultimaImportacion' => $this->ultimaImportacion(),
             // Only computed when the "Archivadas" dialog asks for it with a partial reload.

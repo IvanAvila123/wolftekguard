@@ -79,3 +79,38 @@ test('editing a machote does not reset its use counter', function () {
 
     expect($machote->refresh()->uses)->toBe(7);
 });
+
+test('a machote can be renamed', function () {
+    $machote = Machote::factory()->create(['name' => 'LINEAS ATRAPADAS']);
+
+    $this->actingAs(User::factory()->create())
+        ->put(route('machotes.update', $machote), [
+            'name' => 'Seguimiento de líneas',
+            'cat' => 'Seguimiento',
+            'preset_status' => 'Líneas Atrapadas',
+            'preset_prioridad' => 'Alta',
+            'text' => 'Hola {CLIENTE}',
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect($machote->refresh()->name)->toBe('Seguimiento de líneas');
+});
+
+test('a machote can be deleted', function () {
+    $machote = Machote::factory()->create();
+
+    $this->actingAs(User::factory()->create())
+        ->from(route('machotes'))
+        ->delete(route('machotes.destroy', $machote))
+        ->assertRedirect(route('machotes'));
+
+    expect(Machote::find($machote->id))->toBeNull();
+});
+
+test('guests cannot delete machotes', function () {
+    $machote = Machote::factory()->create();
+
+    $this->delete(route('machotes.destroy', $machote))->assertRedirect(route('login'));
+
+    expect(Machote::find($machote->id))->not->toBeNull();
+});

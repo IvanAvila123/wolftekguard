@@ -1,4 +1,4 @@
-import { Button, Card, CardButton, Icon, MachoteLines, PageHeader, Tag, Textarea } from '@/components/nocturne';
+import { Button, Card, CardButton, Dialog, Field, Icon, Input, MachoteLines, PageHeader, Tag, Textarea } from '@/components/nocturne';
 
 import type { WolftekView } from '../use-wolftek';
 import { sx } from '../utils';
@@ -46,6 +46,7 @@ export default function MachotesScreen({ v }: { v: WolftekView }) {
                         <div style={sx('display:flex;gap:var(--space-2);flex-wrap:wrap;')}>
                             <Button variant="ghost" iconOnly icon="pencil-simple" onClick={v.toggleMachEdit} aria-label="Editar" />
                             <Button variant="ghost" iconOnly icon="copy-simple" onClick={v.dupMach} aria-label="Duplicar" />
+                            {v.canDeleteMach && <Button variant="ghost" iconOnly icon="trash" onClick={v.askDeleteMach} aria-label="Borrar" />}
                             <Button icon="copy" onClick={v.copyMach}>
                                 Copiar
                             </Button>
@@ -56,15 +57,42 @@ export default function MachotesScreen({ v }: { v: WolftekView }) {
                     </div>
                     {v.machEditing ? (
                         <>
+                            <div style={sx('display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-4);')}>
+                                <Field label="Nombre">
+                                    <Input value={v.machName} onChange={v.onMachName} maxLength={255} />
+                                </Field>
+                                <Field label="Categoría">
+                                    <Input value={v.machCat} onChange={v.onMachCat} maxLength={100} />
+                                </Field>
+                            </div>
                             <Textarea
                                 value={v.machText}
                                 onChange={v.onMachText}
                                 rows={14}
                                 style={sx('font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;resize:vertical;')}
                             />
-                            <span style={sx('font-size:12px;color:var(--color-neutral-300);')}>
-                                Escribe variables entre llaves, por ejemplo {'{CLIENTE}'} o {'{CUENTA}'}. Se llenan solas con los datos de la venta.
-                            </span>
+                            <div style={sx('display:flex;flex-direction:column;gap:var(--space-3);')}>
+                                <span style={sx('font-size:12px;color:var(--color-neutral-300);')}>
+                                    Variables disponibles: se llenan solas con los datos de la venta. Toca una para copiarla y pégala en el texto, con
+                                    todo y llaves.
+                                </span>
+                                <div style={sx('display:flex;flex-wrap:wrap;gap:var(--space-2);')}>
+                                    {v.machVars.map((variable) => (
+                                        <button
+                                            key={variable.key}
+                                            type="button"
+                                            onClick={variable.copy}
+                                            title={variable.desc}
+                                            className="h-ring"
+                                            style={sx(
+                                                'border:0;cursor:pointer;font:12px ui-monospace,Menlo,monospace;padding:3px 8px;border-radius:999px;background:var(--color-accent-900);color:var(--color-accent-200);',
+                                            )}
+                                        >
+                                            {variable.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </>
                     ) : (
                         <>
@@ -77,6 +105,27 @@ export default function MachotesScreen({ v }: { v: WolftekView }) {
                     )}
                 </Card>
             </div>
+
+            <Dialog
+                open={v.machDeleteAsk}
+                onClose={v.cancelDeleteMach}
+                title="Borrar machote"
+                icon="trash"
+                actions={
+                    <>
+                        <Button variant="ghost" onClick={v.cancelDeleteMach}>
+                            Cancelar
+                        </Button>
+                        <Button variant="primary" icon="trash" onClick={v.confirmDeleteMach}>
+                            Borrar
+                        </Button>
+                    </>
+                }
+            >
+                <span style={sx('font-size:13px;line-height:1.5;color:var(--color-neutral-200);')}>
+                    Se borra la plantilla "{v.machSelName}". Las ventas que ya capturaste con ella no cambian. Esto no se puede deshacer.
+                </span>
+            </Dialog>
         </>
     );
 }

@@ -133,7 +133,7 @@ export function emptyForm(): SaleForm {
         encargada: '',
         telefono: '',
         horario: 'DE 9:00 A 18:00 HRS',
-        tipo: 'RENOVACION',
+        tipo: 'RENOVACIÓN',
         status: 'Captura',
         prioridad: 'Media',
         cierre: '',
@@ -352,26 +352,14 @@ export function buildMatch(form: SaleForm, bots: Bot[]): string {
     return lines.join('\n');
 }
 
-export function botRows(bot: Bot, i: number): string[][] {
-    return bot.dns.map((dn) => [
-        'BOT ' + (i + 1),
-        dn,
-        bot.equipo,
-        bot.sku,
-        bot.plan,
-        bot.plazo,
-        bot.costo ? 'CON COSTO' : 'SIN COSTO',
-        bot.proteccion ? 'SI' : 'NO',
-        bot.dmr,
-        bot.redes,
-    ]);
+/** The BOT's lines for the CSV loaded into AT&T's system: one DN per row and nothing else. */
+export function botRows(bot: Bot): string[][] {
+    return bot.dns.map((dn) => [dn]);
 }
 
+/** CSV with no header and no BOM, so AT&T's system reads the first DN cleanly. */
 export function csvFor(rows: string[][]): string {
-    const escape = (value: string) => (/[",\n]/.test(String(value)) ? '"' + String(value).replace(/"/g, '""') + '"' : String(value));
-    const header = ['BOT', 'DN', 'EQUIPO', 'SKU', 'PLAN', 'PLAZO', 'TIPO', 'PROTECCION', 'DMR', 'REDES'];
-
-    return '﻿' + [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n');
+    return rows.map((row) => row.join(',')).join('\r\n');
 }
 
 export function downloadFile(name: string, content: string, mime: string): void {
@@ -419,14 +407,56 @@ export function fillVars(text: string, values: Record<string, string> | null, hi
     }));
 }
 
-export function saleVars(sale: Sale): Record<string, string> {
+/** Variables a machote can use, written between braces ({CLIENTE}), with what each one is filled with. */
+export const MACHOTE_VARIABLES: [string, string][] = [
+    ['CLIENTE', 'Razón social del cliente'],
+    ['RAZON SOCIAL', 'Razón social del cliente'],
+    ['NOMBRE DE LA VENTA', 'Nombre de la venta'],
+    ['CUENTA', 'Cuenta AT&T'],
+    ['ID CTE', 'ID Cliente AT&T'],
+    ['RFC', 'RFC'],
+    ['REPRESENTANTE', 'Representante legal'],
+    ['ACUERDO', 'Acuerdo'],
+    ['TIPO', 'Tipo de venta'],
+    ['ESTATUS', 'Estatus'],
+    ['PRIORIDAD', 'Prioridad'],
+    ['DOMICILIO', 'Domicilio'],
+    ['ENCARGADA', 'Encargada'],
+    ['TELEFONO', 'Teléfono'],
+    ['HORARIO', 'Horario'],
+    ['FECHA DE CIERRE', 'Fecha de cierre'],
+    ['NUMERO DE LINEAS', 'Total de DN'],
+    ['DN', 'Todos los DN, separados por coma'],
+    ['EQUIPOS', 'Equipos de los BOTs'],
+    ['PLANES', 'Planes de los BOTs'],
+];
+
+/** The values for every machote variable, from a sale's form and BOTs (being captured or already saved). */
+export function saleVars(form: SaleForm, bots: Bot[]): Record<string, string> {
+    const dns = bots.flatMap((b) => b.dns);
+    const unique = (values: string[]) => [...new Set(values.filter(Boolean))].join(', ');
+
     return {
-        CLIENTE: sale.cliente,
-        'RAZON SOCIAL': sale.cliente,
-        CUENTA: sale.cuenta,
-        'ID CTE': sale.idcte,
-        ACUERDO: sale.acuerdo,
-        'NUMERO DE LINEAS': String(sale.lineas),
+        CLIENTE: form.razon,
+        'RAZON SOCIAL': form.razon,
+        'NOMBRE DE LA VENTA': form.nombre,
+        CUENTA: form.cuenta,
+        'ID CTE': form.idcte,
+        RFC: form.rfc,
+        REPRESENTANTE: form.rl,
+        ACUERDO: form.acuerdo,
+        TIPO: form.tipo,
+        ESTATUS: form.status,
+        PRIORIDAD: form.prioridad,
+        DOMICILIO: form.domicilio,
+        ENCARGADA: form.encargada,
+        TELEFONO: form.telefono,
+        HORARIO: form.horario,
+        'FECHA DE CIERRE': form.cierre,
+        'NUMERO DE LINEAS': dns.length ? String(dns.length) : '',
+        DN: dns.join(', '),
+        EQUIPOS: unique(bots.map((b) => b.equipo)),
+        PLANES: unique(bots.map((b) => b.plan)),
     };
 }
 

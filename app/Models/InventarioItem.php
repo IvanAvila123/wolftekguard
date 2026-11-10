@@ -13,13 +13,6 @@ class InventarioItem extends Model
     use HasFactory;
 
     /**
-     * Warehouses stock is tracked in.
-     *
-     * @var list<string>
-     */
-    public const ALMACENES = ['EBS_MEX', 'EBS_GDL', 'EBS_MTY'];
-
-    /**
      * The attributes that are mass assignable.
      *
      * @var list<string>
@@ -30,7 +23,40 @@ class InventarioItem extends Model
         'nombre',
         'modelo',
         'color',
+        'extras',
     ];
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'extras' => 'array',
+        ];
+    }
+
+    /**
+     * The inventory's columns, in the order of the last imported Excel: warehouses (pieces that add up
+     * to the stock) and extra text details. Without an import yet, they are read from the data.
+     *
+     * @return array{almacenes: list<string>, extras: list<string>}
+     */
+    public static function columnas(): array
+    {
+        $guardadas = InventarioImportacion::query()->whereNotNull('columnas')->latest('id')->value('columnas');
+
+        if (is_array($guardadas)) {
+            return ['almacenes' => array_values($guardadas['almacenes'] ?? []), 'extras' => array_values($guardadas['extras'] ?? [])];
+        }
+
+        return [
+            'almacenes' => InventarioStock::query()->select('almacen')->groupBy('almacen')->orderByRaw('MIN(id)')->pluck('almacen')->all(),
+            'extras' => self::query()->whereNotNull('extras')->pluck('extras')->flatMap(fn (array $extras) => array_keys($extras))->unique()->values()->all(),
+        ];
+    }
 
     /**
      * @return HasMany<InventarioStock, $this>
@@ -53,13 +79,13 @@ class InventarioItem extends Model
      */
     public function stockTotal(): int
     {
-        return array_sum(array_map(fn (string $almacen) => $this->stockEn($almacen), self::ALMACENES));
+        return (int) $this->stocks->sum('cantidad');
     }
 
     /**
      * What replacing the inventory with these file rows would change.
      *
-     * @param  list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>}>  $filas
+     * @param  list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>, extras: array<string, string>}>  $filas
      * @return array{nuevos: list<array<string, mixed>>, cambian: list<array<string, mixed>>, sinStock: list<array<string, mixed>>, quitados: list<array<string, mixed>>, sinCambios: int}
      */
     public static function compararCon(array $filas): array
@@ -78,8 +104,13 @@ class InventarioItem extends Model
             }
 
             $antes = $item->stockTotal();
-            $cambioStock = collect(self::ALMACENES)->contains(fn (string $almacen) => $item->stockEn($almacen) !== $fila['stock'][$almacen]);
+            $stockActual = $item->stocks->mapWithKeys(fn (InventarioStock $stock) => [$stock->almacen => $stock->cantidad])->all();
+            ksort($stockActual);
+            $stockNuevo = $fila['stock'];
+            ksort($stockNuevo);
+            $cambioStock = $stockActual !== $stockNuevo;
             $cambioDatos = $item->nombre !== $fila['nombre'] || $item->oem !== $fila['oem']
+                || ($item->extras ?? []) != ($fila['extras'] ?? [])
                 || ($fila['modelo'] !== null && $item->modelo !== $fila['modelo'])
                 || ($fila['color'] !== null && $item->color !== $fila['color']);
 
@@ -105,9 +136,10 @@ class InventarioItem extends Model
 
     /**
      * Replace the whole inventory with these file rows: update what exists, add what is new and
-     * remove what the file no longer lists. Model and color are kept when the file leaves them out.
+     * remove what the file no longer lists. Model and color are kept when the file leaves them out;
+     * warehouses the file no longer has are removed.
      *
-     * @param  list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>}>  $filas
+     * @param  list<array{oem: string, sku: string, nombre: string, modelo: ?string, color: ?string, stock: array<string, int>, extras: array<string, string>}>  $filas
      */
     public static function reemplazarCon(array $filas): void
     {
@@ -125,7 +157,10 @@ class InventarioItem extends Model
                 'nombre' => $fila['nombre'],
                 'modelo' => $fila['modelo'] ?? ($item->exists ? $item->modelo : $fila['nombre']),
                 'color' => $fila['color'] ?? ($item->exists ? $item->color : ''),
+                'extras' => ($fila['extras'] ?? []) === [] ? null : $fila['extras'],
             ])->save();
+
+            $item->stocks()->whereNotIn('almacen', array_keys($fila['stock']))->delete();
 
             foreach ($fila['stock'] as $almacen => $cantidad) {
                 $item->stocks()->updateOrCreate(['almacen' => $almacen], ['cantidad' => $cantidad]);

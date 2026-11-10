@@ -44,6 +44,7 @@ Route::middleware(['auth', 'throttle:app'])->group(function () {
 
     Route::post('machotes', [MachoteController::class, 'store'])->name('machotes.store');
     Route::put('machotes/{machote}', [MachoteController::class, 'update'])->name('machotes.update');
+    Route::delete('machotes/{machote}', [MachoteController::class, 'destroy'])->name('machotes.destroy');
     Route::post('machotes/{machote}/usos', MachoteUsoController::class)->name('machotes.usos');
 });
 

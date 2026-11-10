@@ -146,10 +146,11 @@ test('the preview explains what is wrong with the file', function (array $filas,
         ->assertUnprocessable()
         ->assertJsonPath('errors.archivo.0', $mensaje);
 })->with([
-    'missing columns' => [[['OEM', 'SKU', 'DESCRIPCION'], ['APPLE', 'N.X', 'X']], 'Al archivo le faltan las columnas: EBS_MEX, EBS_GDL, EBS_MTY. Descarga la plantilla para ver el formato.'],
+    'missing fixed columns' => [[['SKU', 'EBS_MEX'], ['N.X', 1]], 'Al archivo le faltan las columnas: OEM, DESCRIPCION. Descarga la plantilla para ver el formato.'],
+    'no warehouse column' => [[['OEM', 'SKU', 'DESCRIPCION'], ['APPLE', 'N.X', 'X']], 'Agrega al menos una columna con las piezas por almacén (por ejemplo EBS_MEX o EXISTENCIA). Descarga la plantilla para ver el formato.'],
     'no header row' => [[['hola'], ['mundo']], 'No encontramos la fila de encabezados (con la columna SKU). Descarga la plantilla para ver el formato.'],
-    'not a whole number' => [[ENCABEZADOS, ['APPLE', 'N.X', 'X', '', '', 'diez', 0, 0]], 'Fila 2: EBS_MEX debe ser un número entero de 0 o más.'],
-    'negative pieces' => [[ENCABEZADOS, ['APPLE', 'N.X', 'X', '', '', 0, -3, 0]], 'Fila 2: EBS_GDL debe ser un número entero de 0 o más.'],
+    'not a whole number' => [[ENCABEZADOS, ['APPLE', 'N.X', 'X', '', '', 'diez', 0, 0], ['APPLE', 'N.Y', 'Y', '', '', 5, 0, 0]], 'Fila 2: EBS_MEX debe ser un número entero de 0 o más.'],
+    'negative pieces' => [[ENCABEZADOS, ['APPLE', 'N.X', 'X', '', '', 0, -3, 0], ['APPLE', 'N.Y', 'Y', '', '', 0, 4, 0]], 'Fila 2: EBS_GDL debe ser un número entero de 0 o más.'],
     'repeated sku' => [[ENCABEZADOS, ['APPLE', 'N.X', 'X', '', '', 1, 0, 0], ['APPLE', 'n.x', 'X', '', '', 1, 0, 0]], 'Fila 3: el SKU N.X ya viene en la fila 2.'],
     'missing sku' => [[ENCABEZADOS, ['APPLE', '', 'X', '', '', 1, 0, 0]], 'Fila 2: falta SKU.'],
     'only headers' => [[ENCABEZADOS], 'El archivo no tiene modelos debajo de los encabezados.'],
@@ -169,4 +170,46 @@ test('a csv file can be imported too', function () {
         ->post(route('inventario.importar.preview'), ['archivo' => UploadedFile::fake()->createWithContent('inventario.csv', $csv)])
         ->assertOk()
         ->assertJson(['modelos' => 1, 'nuevos' => [['sku' => 'N.HOX5DMN', 'total' => 74]]]);
+});
+
+test('number columns become warehouses and text columns become details', function () {
+    $user = User::factory()->create();
+    $archivo = excelInventario([
+        ['OEM', 'SKU', 'DESCRIPCION', 'BODEGA LEON', 'EXISTENCIA', 'PROVEEDOR', 'PRECIO'],
+        ['APPLE', 'N.IP17', 'IPHONE 17', 3, 10, 'Brightstar', 18999],
+        ['HONOR', 'N.HOX5', 'HONOR X5', 0, 4, '', 3499],
+    ]);
+
+    $preview = $this->actingAs($user)->post(route('inventario.importar.preview'), ['archivo' => $archivo]);
+    $preview->assertOk()->assertJson([
+        'columnas' => ['almacenes' => ['BODEGA LEON', 'EXISTENCIA'], 'extras' => ['PROVEEDOR', 'PRECIO']],
+        'nuevos' => [['sku' => 'N.IP17', 'total' => 13], ['sku' => 'N.HOX5', 'total' => 4]],
+    ]);
+
+    $this->actingAs($user)->post(route('inventario.importar'), ['token' => $preview->json('token')])->assertSessionHasNoErrors();
+
+    $iphone = InventarioItem::with('stocks')->where('sku', 'N.IP17')->sole();
+    expect([$iphone->stockEn('BODEGA LEON'), $iphone->stockEn('EXISTENCIA'), $iphone->stockTotal()])->toBe([3, 10, 13])
+        ->and($iphone->extras)->toBe(['PROVEEDOR' => 'Brightstar', 'PRECIO' => '18999'])
+        ->and(InventarioItem::where('sku', 'N.HOX5')->sole()->extras)->toBe(['PRECIO' => '3499']);
+
+    $this->actingAs($user)->get(route('inventario'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('inventarioColumnas', ['almacenes' => ['BODEGA LEON', 'EXISTENCIA'], 'extras' => ['PROVEEDOR', 'PRECIO']]));
+});
+
+test('a warehouse the new file no longer has is removed', function () {
+    $user = User::factory()->create();
+    itemConStock('N.X', ['EBS_MEX' => 5, 'EBS_GDL' => 7], ['oem' => 'APPLE', 'nombre' => 'X']);
+
+    $token = $this->actingAs($user)
+        ->post(route('inventario.importar.preview'), ['archivo' => excelInventario([['OEM', 'SKU', 'DESCRIPCION', 'EBS_MEX'], ['APPLE', 'N.X', 'X', 6]])])
+        ->assertJson(['cambian' => [['sku' => 'N.X', 'antes' => 12, 'despues' => 6]]])
+        ->json('token');
+
+    $this->actingAs($user)->post(route('inventario.importar'), ['token' => $token])->assertSessionHasNoErrors();
+
+    $item = InventarioItem::with('stocks')->where('sku', 'N.X')->sole();
+    expect($item->stocks->pluck('almacen')->all())->toBe(['EBS_MEX'])
+        ->and($item->stockTotal())->toBe(6);
 });

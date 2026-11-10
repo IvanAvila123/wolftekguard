@@ -24,9 +24,9 @@ class InventarioItemResource extends JsonResource
             'nombre' => $this->nombre,
             'modelo' => $this->modelo,
             'color' => $this->color,
-            'mex' => $this->stockEn('EBS_MEX'),
-            'gdl' => $this->stockEn('EBS_GDL'),
-            'mty' => $this->stockEn('EBS_MTY'),
+            // Pieces per warehouse and extra details, keyed by the Excel column; objects even when empty.
+            'stock' => (object) $this->stocks->mapWithKeys(fn ($stock) => [$stock->almacen => $stock->cantidad])->all(),
+            'extras' => (object) ($this->extras ?? []),
         ];
     }
 }

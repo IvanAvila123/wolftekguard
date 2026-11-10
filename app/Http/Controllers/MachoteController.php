@@ -27,4 +27,14 @@ class MachoteController extends Controller
 
         return back();
     }
+
+    /**
+     * Delete a machote. Sales keep the text they were created with; only the template goes.
+     */
+    public function destroy(Machote $machote): RedirectResponse
+    {
+        $machote->delete();
+
+        return back();
+    }
 }
