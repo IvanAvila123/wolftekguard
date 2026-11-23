@@ -9,6 +9,7 @@ use App\Models\InventarioImportacion;
 use App\Models\InventarioItem;
 use App\Models\Machote;
 use App\Models\Venta;
+use App\Models\VentaBot;
 use App\Models\VentaLinea;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -27,6 +28,9 @@ class DashboardController extends Controller
 
     /** How many archived sales the "Archivadas" dialog lists (the most recently archived). */
     private const ARCHIVADAS_MAX = 50;
+
+    /** How many equipment names from past sales the equipment picker suggests (the most recently sold). */
+    private const EQUIPOS_USADOS_MAX = 300;
 
     /**
      * Show the WolftekGuard app with the sales of one month, the inventory and the machotes.
@@ -57,6 +61,7 @@ class DashboardController extends Controller
             'clientes' => $this->clientes(),
             'inventario' => InventarioItemResource::collection(InventarioItem::with('stocks')->orderBy('id')->get())->resolve(),
             'inventarioColumnas' => InventarioItem::columnas(),
+            'equiposUsados' => $this->equiposUsados(),
             'machotes' => MachoteResource::collection(Machote::orderBy('id')->get())->resolve(),
             'ultimaImportacion' => $this->ultimaImportacion(),
             // Only computed when the "Archivadas" dialog asks for it with a partial reload.
@@ -135,6 +140,25 @@ class DashboardController extends Controller
                 return $cliente;
             })
             ->values()
+            ->all();
+    }
+
+    /**
+     * Equipment names already sold, most recently sold first, so the picker can suggest
+     * them when the inventory is empty or no longer has them (equipment typed by hand too).
+     *
+     * @return list<string>
+     */
+    private function equiposUsados(): array
+    {
+        return VentaBot::query()
+            ->where('equipo', '!=', '')
+            ->select('equipo')
+            ->selectRaw('MAX(id) as ultimo')
+            ->groupBy('equipo')
+            ->orderByDesc('ultimo')
+            ->limit(self::EQUIPOS_USADOS_MAX)
+            ->pluck('equipo')
             ->all();
     }
 

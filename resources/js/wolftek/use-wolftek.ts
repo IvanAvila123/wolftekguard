@@ -240,6 +240,7 @@ export function useWolftek({
     inventario,
     // Default for a page cached offline before inventory columns existed.
     inventarioColumnas = { almacenes: [], extras: [] },
+    equiposUsados = [],
     machotes,
     ultimaImportacion,
     archivadas,
@@ -790,6 +791,14 @@ export function useWolftek({
         [inventario],
     );
     const invList = Object.values(invBySku);
+    /** Equipment sold before that the inventory does not have (emptied, replaced, or typed by hand). */
+    const usedList = useMemo(() => {
+        const enInventario = new Set(inventario.map((r) => r.nombre.toUpperCase()));
+
+        return equiposUsados
+            .filter((name) => !enInventario.has(name.toUpperCase()))
+            .map((name): InventoryItem => ({ oem: '', sku: '', name, stock: 0, model: '', color: '' }));
+    }, [equiposUsados, inventario]);
     const need: Record<string, { n: number; bots: number[] }> = {};
     s.bots.forEach((b, i) => {
         if (b.sku && invBySku[b.sku]) {
@@ -972,6 +981,15 @@ export function useWolftek({
                   .sort((a, c) => c.sc - a.sc || Number(c.o.stock > 0) - Number(a.o.stock > 0) || a.o.name.localeCompare(c.o.name))
                   .map((x) => x.o)
             : [];
+        const usados = open
+            ? usedList
+                  .map((o) => ({ o, sc: fuzzyScore(o, b.pq) }))
+                  .filter((x) => x.sc > 0)
+                  .sort((a, c) => c.sc - a.sc)
+                  .slice(0, 20)
+                  .map((x) => x.o)
+            : [];
+        const pqText = b.pq.trim().toUpperCase();
         const con = segOn(b.costo);
         const sin = segOn(!b.costo);
         const otherDns = [...new Set(b.dns.filter((d) => dnOwners[d] && where[d].length === 1))];
@@ -1045,9 +1063,15 @@ export function useWolftek({
             },
             eqLabel: b.equipo ? niceEquipo(b.equipo) : 'Elige un equipo del inventario',
             isManual: !!b.equipo && !b.sku,
-            manualText: b.pq.trim().toUpperCase(),
-            canManual: open && !!b.pq.trim(),
-            pickManual: () => pickManual(i, b.pq.trim().toUpperCase()),
+            manualText: pqText,
+            canManual: open && !!pqText && !usados.some((o) => o.name.toUpperCase() === pqText),
+            pickManual: () => pickManual(i, pqText),
+            usados: usados.map((o) => ({
+                key: o.name,
+                name: niceEquipo(o.name),
+                bg: !b.sku && b.equipo === o.name ? 'var(--color-accent-900)' : 'transparent',
+                pick: () => pickManual(i, o.name),
+            })),
             eqColor: b.equipo ? 'var(--color-text)' : 'var(--color-neutral-400)',
             pickerOpen: open,
             openPicker: () => set({ pickerFor: open ? null : i }),
@@ -1060,9 +1084,9 @@ export function useWolftek({
                 } else if (e.key === 'Enter' && items[0]) {
                     e.preventDefault();
                     pickInto(i, items[0]);
-                } else if (e.key === 'Enter' && b.pq.trim()) {
+                } else if (e.key === 'Enter' && (usados[0] || pqText)) {
                     e.preventDefault();
-                    pickManual(i, b.pq.trim().toUpperCase());
+                    pickManual(i, usados[0] ? usados[0].name : pqText);
                 }
             },
             items: items.map((o) => ({
@@ -1076,9 +1100,15 @@ export function useWolftek({
                 stockLabel: o.stock === 0 ? 'Sin stock' : o.stock + ' pzas',
                 pick: () => pickInto(i, o),
             })),
-            noItems: open && items.length === 0,
+            noItems: open && items.length === 0 && usados.length === 0,
             resultsLabel:
-                items.length + (items.length === 1 ? ' equipo' : ' equipos') + ' · ' + items.filter((o) => o.stock > 0).length + ' con piezas',
+                (invList.length === 0
+                    ? 'El inventario está vacío'
+                    : items.length +
+                      (items.length === 1 ? ' equipo' : ' equipos') +
+                      ' · ' +
+                      items.filter((o) => o.stock > 0).length +
+                      ' con piezas') + (usados.length ? ' · ' + usados.length + (usados.length === 1 ? ' usado antes' : ' usados antes') : ''),
             sku: b.sku,
             onSku: (e: ChangeEvent<HTMLInputElement>) => {
                 const v = e.target.value.toUpperCase().trim();

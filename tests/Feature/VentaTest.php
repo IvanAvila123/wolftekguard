@@ -8,6 +8,7 @@ use App\Models\VentaDocumento;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Testing\AssertableInertia as Assert;
 
 /**
  * A valid sale payload as the Nueva venta wizard submits it.
@@ -398,4 +399,16 @@ test('an edit queued before versions existed is still saved', function () {
         ->assertSessionHasNoErrors();
 
     expect($venta->refresh()->version)->toBe(5);
+});
+
+test('the dashboard suggests equipment from past sales, most recently sold first', function () {
+    $venta = Venta::factory()->create();
+    VentaBot::factory()->for($venta)->create(['equipo' => 'MOTOROLA EDGE 60', 'sku' => '']);
+    VentaBot::factory()->for($venta)->create(['equipo' => 'HONOR X5D MIDNIGTH BLACK ATT', 'sku' => 'N.HOX5DMN']);
+    VentaBot::factory()->for($venta)->create(['equipo' => 'MOTOROLA EDGE 60', 'sku' => '']);
+    VentaBot::factory()->for($venta)->create(['equipo' => '', 'sku' => 'N.IP17256GL']);
+
+    $this->actingAs(User::factory()->create())
+        ->get(route('ventas.create'))
+        ->assertInertia(fn (Assert $page) => $page->where('equiposUsados', ['MOTOROLA EDGE 60', 'HONOR X5D MIDNIGTH BLACK ATT']));
 });

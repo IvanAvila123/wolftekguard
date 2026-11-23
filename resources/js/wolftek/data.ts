@@ -209,6 +209,8 @@ export type WolftekProps = {
     clientes: ClienteConocido[];
     inventario: InventoryRow[];
     inventarioColumnas: InventoryColumns;
+    /** Equipment names already sold, most recent first: picker suggestions beyond the inventory. */
+    equiposUsados?: string[];
     machotes: Machote[];
     ultimaImportacion: UltimaImportacion | null;
     /** Only sent when the "Archivadas" dialog asks for it (optional prop). */

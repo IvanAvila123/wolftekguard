@@ -196,6 +196,31 @@ function EquipoPicker({ b, eqCols }: { b: BotView; eqCols: string }) {
                                         </Tag>
                                     </button>
                                 ))}
+                                {b.usados.length > 0 && (
+                                    <span
+                                        style={sx(
+                                            'font-size:11px;letter-spacing:0.04em;color:var(--color-neutral-400);padding:var(--space-3) var(--space-2) var(--space-1);',
+                                        )}
+                                    >
+                                        Usados en ventas anteriores
+                                    </span>
+                                )}
+                                {b.usados.map((u) => (
+                                    <button
+                                        key={u.key}
+                                        type="button"
+                                        onClick={u.pick}
+                                        role="option"
+                                        aria-selected={u.bg !== 'transparent'}
+                                        className="h-bg"
+                                        style={sx(
+                                            `height:auto;min-height:44px;line-height:1.4;border:0;font:inherit;color:var(--color-text);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);padding:var(--space-3);border-radius:var(--radius-sm);text-align:left;background:${u.bg};`,
+                                        )}
+                                    >
+                                        <span style={sx('min-width:0;flex:1;font-size:13px;line-height:1.4;white-space:normal;')}>{u.name}</span>
+                                        <Tag variant="neutral">Sin inventario</Tag>
+                                    </button>
+                                ))}
                                 {b.noItems && (
                                     <div
                                         style={sx(
