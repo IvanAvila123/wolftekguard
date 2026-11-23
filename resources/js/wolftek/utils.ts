@@ -345,7 +345,7 @@ export function buildMatch(form: SaleForm, bots: Bot[]): string {
 
     bots.forEach((bot, i) => {
         lines.push('BOT ' + (i + 1) + ': ' + (bot.costo ? 'CON COSTO' : 'SIN COSTO'), '');
-        bot.dns.forEach((dn) => lines.push(dn + '  ' + bot.equipo + ' (SKU ' + bot.sku + ')    ' + bot.plan));
+        bot.dns.forEach((dn) => lines.push(dn + '  ' + bot.equipo + (bot.sku ? ' (SKU ' + bot.sku + ')' : '') + '    ' + bot.plan));
         lines.push('', 'Plazo:  ' + bot.plazo, 'Redes:  ' + bot.redes, '-----------------------', '');
     });
 

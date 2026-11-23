@@ -813,6 +813,9 @@ export function useWolftek({
     };
     const pickInto = (i: number, it: InventoryItem) =>
         set((st) => ({ pickerFor: null, bots: st.bots.map((b, j) => (j === i ? { ...b, equipo: it.name, sku: it.sku, pq: '' } : b)) }));
+    /** Equipment that is not in the inventory: saved by its name only, with no SKU and no stock taken. */
+    const pickManual = (i: number, name: string) =>
+        set((st) => ({ pickerFor: null, bots: st.bots.map((b, j) => (j === i ? { ...b, equipo: name, sku: '', pq: '' } : b)) }));
 
     /** Required-doc and "otros" files picked in the wizard that still need uploading. */
     const pendingUploads = (docs: Docs) =>
@@ -1041,6 +1044,10 @@ export function useWolftek({
                 }
             },
             eqLabel: b.equipo ? niceEquipo(b.equipo) : 'Elige un equipo del inventario',
+            isManual: !!b.equipo && !b.sku,
+            manualText: b.pq.trim().toUpperCase(),
+            canManual: open && !!b.pq.trim(),
+            pickManual: () => pickManual(i, b.pq.trim().toUpperCase()),
             eqColor: b.equipo ? 'var(--color-text)' : 'var(--color-neutral-400)',
             pickerOpen: open,
             openPicker: () => set({ pickerFor: open ? null : i }),
@@ -1053,6 +1060,9 @@ export function useWolftek({
                 } else if (e.key === 'Enter' && items[0]) {
                     e.preventDefault();
                     pickInto(i, items[0]);
+                } else if (e.key === 'Enter' && b.pq.trim()) {
+                    e.preventDefault();
+                    pickManual(i, b.pq.trim().toUpperCase());
                 }
             },
             items: items.map((o) => ({
@@ -1139,7 +1149,7 @@ export function useWolftek({
         ['Cuenta AT&T', req('cuenta') && !digits(f.cuenta, 9, '1'), 0],
         ['ID Cliente AT&T', req('idcte') && !digits(f.idcte, 9, '1'), 0],
         ['Al menos un DN', lineTotal > 0, 1],
-        ['Equipo en cada BOT', s.bots.every((b) => b.sku), 1],
+        ['Equipo en cada BOT', s.bots.every((b) => b.sku || b.equipo.trim()), 1],
         ['Sin DN duplicados', dupVals.length === 0, 1],
         ['DN libres (no están en otra venta abierta)', dnsOcupados.length === 0, 1],
     ];

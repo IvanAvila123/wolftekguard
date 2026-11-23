@@ -283,6 +283,46 @@ test('the equipment sku must be in the inventory', function () {
     expect(Venta::count())->toBe(0);
 });
 
+test('equipment typed by hand is saved without a sku', function () {
+    $payload = ventaPayload();
+    $payload['bots'][1]['equipo'] = 'MOTOROLA EDGE 60 AZUL';
+    $payload['bots'][1]['sku'] = '';
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('ventas.store'), $payload)
+        ->assertSessionHasNoErrors();
+
+    $bot = Venta::sole()->bots()->where('posicion', 1)->sole();
+    expect([$bot->equipo, $bot->sku])->toBe(['MOTOROLA EDGE 60 AZUL', '']);
+});
+
+test('a bot needs an inventory sku or equipment typed by hand', function () {
+    $payload = ventaPayload();
+    $payload['bots'][1]['equipo'] = '';
+    $payload['bots'][1]['sku'] = '';
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('ventas.store'), $payload)
+        ->assertSessionHasErrors(['bots.1.equipo' => 'Elige un equipo del inventario o escríbelo a mano.']);
+
+    expect(Venta::count())->toBe(0);
+});
+
+test('finishing a sale takes no pieces for equipment typed by hand', function () {
+    $item = InventarioItem::firstWhere('sku', 'N.HOX5DMN');
+    $item->stocks()->create(['almacen' => 'EBS_MEX', 'cantidad' => 10]);
+    $venta = Venta::factory()->status('Captura')->create();
+    $payload = ventaPayload(['status' => 'Terminado']);
+    $payload['bots'][1]['sku'] = '';
+
+    $this->actingAs(User::factory()->create())
+        ->put(route('ventas.update', $venta), $payload)
+        ->assertSessionHasNoErrors();
+
+    expect($item->load('stocks')->stockEn('EBS_MEX'))->toBe(8)
+        ->and($venta->eventos()->pluck('texto'))->toContain('Inventario: se descontaron 2 equipos');
+});
+
 test('editing a sale keeps a sku that a later import removed from the inventory', function () {
     $venta = Venta::factory()->create();
     VentaBot::factory()->for($venta)->withDns(['4774961217'])->create(['sku' => 'N.DESCONTINUADO']);

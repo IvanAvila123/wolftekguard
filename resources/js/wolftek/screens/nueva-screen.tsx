@@ -113,6 +113,12 @@ function EquipoPicker({ b, eqCols }: { b: BotView; eqCols: string }) {
                     <span style={sx('flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{b.eqLabel}</span>
                     <Icon name="caret-up-down" color="var(--color-neutral-400)" />
                 </button>
+                {b.isManual && (
+                    <span style={sx('display:flex;align-items:center;gap:var(--space-2);font-size:11px;color:var(--color-neutral-300);')}>
+                        <Icon name="pencil-simple" />
+                        Escrito a mano: no está en el inventario, no se descuentan piezas
+                    </span>
+                )}
                 {b.hasStock && (
                     <div style={sx('display:flex;align-items:center;gap:var(--space-2) var(--space-4);flex-wrap:wrap;font-size:11px;')}>
                         <span style={sx(`display:flex;align-items:center;gap:var(--space-2);white-space:nowrap;color:${b.stockColor};`)}>
@@ -196,8 +202,23 @@ function EquipoPicker({ b, eqCols }: { b: BotView; eqCols: string }) {
                                             'padding:var(--space-4) var(--space-3);font-size:12px;line-height:1.5;color:var(--color-neutral-300);',
                                         )}
                                     >
-                                        No encontramos "{b.pq}". Prueba con menos palabras, por ejemplo solo el modelo.
+                                        No encontramos "{b.pq}" en el inventario. Prueba con menos palabras, o escríbelo a mano.
                                     </div>
+                                )}
+                                {b.canManual && (
+                                    <button
+                                        type="button"
+                                        onClick={b.pickManual}
+                                        className="h-bg"
+                                        style={sx(
+                                            'height:auto;min-height:44px;line-height:1.4;border:0;border-top:1px solid var(--color-neutral-800);font:inherit;color:var(--color-accent-300);cursor:pointer;display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3);border-radius:var(--radius-sm);text-align:left;background:transparent;',
+                                        )}
+                                    >
+                                        <Icon name="pencil-simple" />
+                                        <span style={sx('min-width:0;overflow-wrap:anywhere;font-size:13px;')}>
+                                            Usar "{b.manualText}" escrito a mano
+                                        </span>
+                                    </button>
                                 )}
                             </div>
                         </Card>
@@ -208,7 +229,7 @@ function EquipoPicker({ b, eqCols }: { b: BotView; eqCols: string }) {
                 <Input
                     value={b.sku}
                     onChange={b.onSku}
-                    placeholder="Se llena al elegir equipo"
+                    placeholder={b.isManual ? 'Sin SKU (escrito a mano)' : 'Se llena al elegir equipo'}
                     invalid={b.hasSkuMsg}
                     style={sx('font-variant-numeric:tabular-nums;')}
                 />

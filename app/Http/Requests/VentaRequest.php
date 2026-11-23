@@ -42,8 +42,9 @@ class VentaRequest extends FormRequest
 
             'bots' => ['required', 'array', 'min:1'],
             'bots.*.costo' => ['required', 'boolean'],
-            'bots.*.equipo' => ['nullable', 'string', 'max:255'],
-            'bots.*.sku' => ['required', 'string', 'max:255'],
+            // A BOT without SKU is equipment typed by hand (not in the inventory): its name is then required.
+            'bots.*.equipo' => ['nullable', 'required_without:bots.*.sku', 'string', 'max:255'],
+            'bots.*.sku' => ['nullable', 'string', 'max:255'],
             'bots.*.plan' => ['nullable', 'string', 'max:255'],
             'bots.*.plazo' => ['nullable', 'string', 'max:50'],
             'bots.*.proteccion' => ['required', 'boolean'],
@@ -73,6 +74,7 @@ class VentaRequest extends FormRequest
             'documentos.*.archivo.mimes' => 'Uno de los documentos no es de un tipo permitido. Sube PDF, imágenes, Word, Excel o correos guardados.',
             'bots.*.dns.*.digits' => 'El DN :input debe tener 10 dígitos.',
             'bots.*.dns.*.distinct' => 'El DN :input está repetido en esta venta.',
+            'bots.*.equipo.required_without' => 'Elige un equipo del inventario o escríbelo a mano.',
         ];
     }
 
@@ -111,12 +113,13 @@ class VentaRequest extends FormRequest
     }
 
     /**
-     * Every BOT's SKU must be in the inventory. When editing, the SKUs the sale
-     * already had are still accepted even if a later Excel import removed them.
+     * Every BOT's SKU must be in the inventory; a BOT without SKU is equipment typed by hand.
+     * When editing, the SKUs the sale already had are still accepted even if a later
+     * Excel import removed them.
      */
     private function validarSkus(Validator $validator): void
     {
-        $skus = collect($this->input('bots'))->pluck('sku')->unique();
+        $skus = collect($this->input('bots'))->pluck('sku')->filter()->unique();
         $conocidos = InventarioItem::whereIn('sku', $skus)->pluck('sku');
 
         if ($venta = $this->ventaYaGuardada()) {
@@ -124,7 +127,7 @@ class VentaRequest extends FormRequest
         }
 
         foreach ($this->input('bots') as $i => $bot) {
-            if (! $conocidos->contains($bot['sku'])) {
+            if (filled($bot['sku'] ?? null) && ! $conocidos->contains($bot['sku'])) {
                 $validator->errors()->add("bots.{$i}.sku", "El equipo {$bot['sku']} no está en el inventario.");
             }
         }
@@ -208,7 +211,7 @@ class VentaRequest extends FormRequest
         return collect($this->validated('bots'))->map(fn (array $bot) => [
             'costo' => (bool) $bot['costo'],
             'equipo' => (string) ($bot['equipo'] ?? ''),
-            'sku' => (string) $bot['sku'],
+            'sku' => (string) ($bot['sku'] ?? ''),
             'plan' => (string) ($bot['plan'] ?? ''),
             'plazo' => (string) ($bot['plazo'] ?? ''),
             'proteccion' => (bool) $bot['proteccion'],

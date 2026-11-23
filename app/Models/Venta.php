@@ -281,10 +281,11 @@ class Venta extends Model
     /**
      * One piece per DN (at least one per BOT), taken from the warehouses with the most stock first.
      * Missing pieces are only noted: the sale was allowed to be saved without enough stock.
+     * Equipment typed by hand (no SKU) is not in the inventory, so nothing is taken for it.
      */
     private function descontarInventario(?User $user): void
     {
-        $piezasPorSku = $this->bots()->with('lineas')->get()
+        $piezasPorSku = $this->bots()->with('lineas')->where('sku', '!=', '')->get()
             ->groupBy('sku')
             ->map(fn ($bots) => $bots->sum(fn (VentaBot $bot) => max(1, $bot->lineas->count())));
 
