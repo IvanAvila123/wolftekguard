@@ -1,3 +1,9 @@
+# Run the app on PHP 8.5 (Laravel 13 needs it). On Hostinger a subdomain shares the
+# parent domain's PHP version, so the version is set here for this folder only.
+<FilesMatch ".(php4|php5|php3|php2|php|phtml)$">
+SetHandler application/x-lsphp85
+</FilesMatch>
+
 # Shared hosting (Hostinger) deploys the whole project into public_html.
 # Only the public/ folder may be reachable from the web: every request is sent
 # there, so .env, storage, vendor and the source code can never be downloaded.
